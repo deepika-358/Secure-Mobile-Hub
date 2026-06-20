@@ -1,44 +1,69 @@
-# [Project name]
+# VeritasAI — Fake News Detection System
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+An AI-powered web application that analyzes news articles and images to classify them as real, fake, or uncertain, with confidence scores and detailed explanations.
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
+- `pnpm --filter @workspace/api-server run dev` — run the API server (port 8080)
+- `pnpm --filter @workspace/fakenews-detector run dev` — run the frontend (port 25171)
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
 - Required env: `DATABASE_URL` — Postgres connection string
+- Required env: `OPENAI_API_KEY` — OpenAI API key for AI detection
+- Required env: `SESSION_SECRET` — Express session secret for admin auth
 
 ## Stack
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9
+- Frontend: React + Vite + Tailwind CSS + shadcn/ui + React Query
 - API: Express 5
 - DB: PostgreSQL + Drizzle ORM
+- AI: OpenAI gpt-4o-mini (text + vision for image analysis)
 - Validation: Zod (`zod/v4`), `drizzle-zod`
 - API codegen: Orval (from OpenAPI spec)
 - Build: esbuild (CJS bundle)
+- File uploads: multer (memory storage)
+- Auth: express-session (admin panel)
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `lib/api-spec/openapi.yaml` — OpenAPI contract (source of truth)
+- `lib/db/src/schema/` — Drizzle table definitions (`articles.ts`, `admins.ts`)
+- `artifacts/api-server/src/routes/` — Express route handlers
+- `artifacts/api-server/src/lib/detect.ts` — OpenAI detection logic (text + vision)
+- `artifacts/fakenews-detector/src/pages/` — React pages (Home, Result, History, Admin)
+- `artifacts/fakenews-detector/src/components/` — Shared UI components
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- Contract-first: OpenAPI spec → codegen → typed React Query hooks + Zod schemas
+- Lazy OpenAI client initialization (created per-request, not at module load) so server starts even if OPENAI_API_KEY is missing
+- Image uploads processed in memory via multer (no disk storage needed for base64 → OpenAI Vision)
+- Admin auth uses express-session with SHA-256 password hashing (salted)
+- Image detection uses two OpenAI calls: first to extract text via vision, second to classify as fake/real
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+- **Home**: Submit news article by text or image screenshot for AI analysis
+- **Results**: Detailed verdict page with confidence bar, explanation, and key indicators
+- **History**: Browse all past detections, filter by verdict (real/fake/uncertain)
+- **Admin Dashboard**: Secured login (`admin` / `admin123`), stats, daily chart, override verdicts, delete articles
 
 ## User preferences
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+- Tamil/English mix user — respond in both when needed
+- Wants deploy-ready code for GitHub/Vercel
+- Real database required (no mocks)
+- Image upload for fake news detection is a key requirement
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- OPENAI_API_KEY must be set in Secrets panel — server starts without it but detection returns error
+- Admin password is SHA-256 hashed with salt `fakenews_salt_2024` — change in production
+- Image route (`POST /api/articles/image`) uses multer middleware — NOT in OpenAPI spec (raw route)
+- The `/articles/image` route must be registered BEFORE `/articles/:id` in Express to avoid param conflict
 
 ## Pointers
 

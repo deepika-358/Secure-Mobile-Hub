@@ -1,5 +1,6 @@
 import { Router, type IRouter } from "express";
-import { eq, desc, and, isNotNull } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
+import multer from "multer";
 import { db, articlesTable } from "@workspace/db";
 import {
   ListArticlesQueryParams,
@@ -9,7 +10,19 @@ import {
   OverrideVerdictParams,
   OverrideVerdictBody,
 } from "@workspace/api-zod";
-import { detectFakeNews } from "../lib/detect";
+import { detectFakeNews, extractAndDetectFromImage } from "../lib/detect";
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (file.mimetype.startsWith("image/")) {
+      cb(null, true);
+    } else {
+      cb(new Error("Only image files are allowed"));
+    }
+  },
+});
 
 const router: IRouter = Router();
 
@@ -158,6 +171,51 @@ router.patch("/articles/:id/verdict", async (req, res): Promise<void> => {
   }
 
   res.json(toArticleResponse(updated));
+});
+
+router.post("/articles/image", upload.single("image"), async (req, res): Promise<void> => {
+  if (!req.file) {
+    res.status(400).json({ error: "No image file provided" });
+    return;
+  }
+
+  const imageBase64 = req.file.buffer.toString("base64");
+  const mimeType = req.file.mimetype;
+
+  const [pending] = await db
+    .insert(articlesTable)
+    .values({
+      title: "Analyzing image...",
+      content: "",
+      url: null,
+      source: null,
+      verdict: "uncertain",
+      confidence: 0,
+      explanation: "Extracting text from image...",
+      indicators: null,
+      status: "pending",
+      adminOverride: false,
+    })
+    .returning();
+
+  const { extraction, detection } = await extractAndDetectFromImage(imageBase64, mimeType);
+
+  const [analyzed] = await db
+    .update(articlesTable)
+    .set({
+      title: extraction.title || "Untitled",
+      content: extraction.content || "",
+      source: extraction.source ?? null,
+      verdict: detection.verdict,
+      confidence: detection.confidence,
+      explanation: detection.explanation,
+      indicators: detection.indicators || null,
+      status: "analyzed",
+    })
+    .where(eq(articlesTable.id, pending.id))
+    .returning();
+
+  res.status(201).json(toArticleResponse(analyzed));
 });
 
 function toArticleResponse(row: typeof articlesTable.$inferSelect) {

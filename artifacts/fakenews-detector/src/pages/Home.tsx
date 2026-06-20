@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useLocation } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { ShieldCheck, Activity, Link as LinkIcon, TextSelect, Newspaper } from "lucide-react";
+import { ShieldCheck, Activity, Link as LinkIcon, TextSelect, Newspaper, ImageUp, X, FileImage } from "lucide-react";
 
 import { useSubmitArticle, useGetRecentDetections } from "@workspace/api-client-react";
 import { getListArticlesQueryKey } from "@workspace/api-client-react";
@@ -30,33 +30,29 @@ const formSchema = z.object({
   source: z.string().optional(),
 });
 
+type Tab = "text" | "image";
+
 export function Home() {
   const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const submitMutation = useSubmitArticle();
-  
+  const [activeTab, setActiveTab] = useState<Tab>("text");
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const [imageLoading, setImageLoading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const { data: recentArticles, isLoading: isLoadingRecent } = useGetRecentDetections({ limit: 6 });
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
-    defaultValues: {
-      title: "",
-      content: "",
-      url: "",
-      source: "",
-    },
+    defaultValues: { title: "", content: "", url: "", source: "" },
   });
 
   function onSubmit(values: z.infer<typeof formSchema>) {
     submitMutation.mutate(
-      {
-        data: {
-          title: values.title,
-          content: values.content,
-          url: values.url || undefined,
-          source: values.source || undefined,
-        },
-      },
+      { data: { title: values.title, content: values.content, url: values.url || undefined, source: values.source || undefined } },
       {
         onSuccess: (data) => {
           queryClient.invalidateQueries({ queryKey: getListArticlesQueryKey() });
@@ -66,9 +62,59 @@ export function Home() {
     );
   }
 
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      setImageError("Please upload an image file (JPG, PNG, WebP, etc.)");
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      setImageError("Image must be under 10MB");
+      return;
+    }
+    setImageError(null);
+    setImageFile(file);
+    const reader = new FileReader();
+    reader.onload = (ev) => setImagePreview(ev.target?.result as string);
+    reader.readAsDataURL(file);
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      const fakeEvent = { target: { files: [file] } } as unknown as React.ChangeEvent<HTMLInputElement>;
+      handleFileChange(fakeEvent);
+    }
+  }
+
+  async function handleImageSubmit() {
+    if (!imageFile) return;
+    setImageLoading(true);
+    setImageError(null);
+    try {
+      const formData = new FormData();
+      formData.append("image", imageFile);
+      const res = await fetch("/api/articles/image", { method: "POST", body: formData });
+      if (!res.ok) {
+        const body = await res.json() as { error?: string };
+        throw new Error(body.error ?? "Upload failed");
+      }
+      const data = await res.json() as { id: number };
+      queryClient.invalidateQueries({ queryKey: getListArticlesQueryKey() });
+      setLocation(`/results/${data.id}`);
+    } catch (err) {
+      setImageError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setImageLoading(false);
+    }
+  }
+
+  const isAnalyzing = submitMutation.isPending || imageLoading;
+
   return (
     <div className="flex-1 w-full max-w-7xl mx-auto px-4 py-8 md:py-16 space-y-24">
-      {/* Hero Section */}
       <section className="grid lg:grid-cols-2 gap-12 lg:gap-8 items-start">
         <div className="space-y-8 max-w-xl pt-4">
           <div className="space-y-4">
@@ -84,7 +130,6 @@ export function Home() {
               Verify claims instantly. Our intelligence engine analyzes linguistic patterns, cross-references sources, and exposes disinformation before it spreads.
             </p>
           </div>
-          
           <div className="grid sm:grid-cols-2 gap-6 text-sm">
             <div className="flex gap-3">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-card border border-border/50">
@@ -107,9 +152,8 @@ export function Home() {
           </div>
         </div>
 
-        {/* Submission Form */}
         <Card className="border-border/50 bg-card/40 backdrop-blur-sm shadow-2xl relative overflow-hidden">
-          {submitMutation.isPending && (
+          {isAnalyzing && (
             <div className="absolute inset-0 z-50 bg-background/80 backdrop-blur-sm flex flex-col items-center justify-center space-y-6">
               <div className="relative">
                 <div className="absolute inset-0 bg-primary/20 rounded-full blur-xl animate-pulse" />
@@ -122,92 +166,163 @@ export function Home() {
             </div>
           )}
 
-          <CardHeader>
+          <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-xl">
               <TextSelect className="h-5 w-5 text-primary" />
               Analyze Article
             </CardTitle>
             <CardDescription>
-              Paste the headline and content to run a real-time verification.
+              Paste article text or upload a screenshot for instant verification.
             </CardDescription>
           </CardHeader>
-          <CardContent>
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
-                <FormField
-                  control={form.control}
-                  name="title"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Headline / Title</FormLabel>
-                      <FormControl>
-                        <Input placeholder="e.g. BREAKING: Major discovery in..." className="bg-background/50" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
 
-                <FormField
-                  control={form.control}
-                  name="content"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Full Article Text</FormLabel>
-                      <FormControl>
-                        <Textarea 
-                          placeholder="Paste the full body of the article here for most accurate analysis..." 
-                          className="min-h-[140px] resize-none bg-background/50" 
-                          {...field} 
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+          <CardContent className="space-y-5">
+            {/* Tab switcher */}
+            <div className="flex rounded-lg bg-background/50 border border-border/50 p-1 gap-1">
+              <button
+                onClick={() => setActiveTab("text")}
+                className={`flex-1 flex items-center justify-center gap-2 rounded-md py-2 text-sm font-medium transition-all ${
+                  activeTab === "text"
+                    ? "bg-card text-foreground shadow-sm border border-border/60"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <TextSelect className="h-4 w-4" />
+                Text Input
+              </button>
+              <button
+                onClick={() => setActiveTab("image")}
+                className={`flex-1 flex items-center justify-center gap-2 rounded-md py-2 text-sm font-medium transition-all ${
+                  activeTab === "image"
+                    ? "bg-card text-foreground shadow-sm border border-border/60"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <ImageUp className="h-4 w-4" />
+                Image Upload
+              </button>
+            </div>
 
-                <div className="grid sm:grid-cols-2 gap-4">
+            {activeTab === "text" ? (
+              <Form {...form}>
+                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
                   <FormField
                     control={form.control}
-                    name="url"
+                    name="title"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel className="flex items-center gap-1.5">
-                          <LinkIcon className="h-3.5 w-3.5" /> URL (Optional)
-                        </FormLabel>
+                        <FormLabel>Headline / Title</FormLabel>
                         <FormControl>
-                          <Input placeholder="https://..." className="bg-background/50" {...field} />
+                          <Input placeholder="e.g. BREAKING: Major discovery in..." className="bg-background/50" {...field} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
                   />
-
                   <FormField
                     control={form.control}
-                    name="source"
+                    name="content"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Source Name (Optional)</FormLabel>
+                        <FormLabel>Full Article Text</FormLabel>
                         <FormControl>
-                          <Input placeholder="e.g. The Daily Tribune" className="bg-background/50" {...field} />
+                          <Textarea
+                            placeholder="Paste the full body of the article here for most accurate analysis..."
+                            className="min-h-[140px] resize-none bg-background/50"
+                            {...field}
+                          />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
                   />
+                  <div className="grid sm:grid-cols-2 gap-4">
+                    <FormField
+                      control={form.control}
+                      name="url"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel className="flex items-center gap-1.5">
+                            <LinkIcon className="h-3.5 w-3.5" /> URL (Optional)
+                          </FormLabel>
+                          <FormControl>
+                            <Input placeholder="https://..." className="bg-background/50" {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="source"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Source Name (Optional)</FormLabel>
+                          <FormControl>
+                            <Input placeholder="e.g. The Daily Tribune" className="bg-background/50" {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                  <Button type="submit" className="w-full h-12 text-base font-semibold" disabled={submitMutation.isPending}>
+                    Run Intelligence Scan
+                  </Button>
+                </form>
+              </Form>
+            ) : (
+              <div className="space-y-4">
+                <div
+                  onDrop={handleDrop}
+                  onDragOver={(e) => e.preventDefault()}
+                  onClick={() => fileInputRef.current?.click()}
+                  className={`relative flex flex-col items-center justify-center rounded-xl border-2 border-dashed transition-all cursor-pointer min-h-[200px] ${
+                    imagePreview
+                      ? "border-primary/40 bg-primary/5"
+                      : "border-border/50 hover:border-primary/40 hover:bg-primary/5 bg-background/30"
+                  }`}
+                >
+                  {imagePreview ? (
+                    <>
+                      <img src={imagePreview} alt="Preview" className="max-h-52 max-w-full rounded-lg object-contain" />
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setImageFile(null); setImagePreview(null); setImageError(null); }}
+                        className="absolute top-2 right-2 rounded-full bg-background/90 border border-border p-1 hover:bg-destructive/10 transition-colors"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                      <p className="mt-2 text-xs text-muted-foreground">{imageFile?.name}</p>
+                    </>
+                  ) : (
+                    <>
+                      <FileImage className="h-12 w-12 text-muted-foreground/50 mb-3" />
+                      <p className="font-medium text-sm text-foreground">Drop image here or click to browse</p>
+                      <p className="text-xs text-muted-foreground mt-1">JPG, PNG, WebP up to 10MB</p>
+                      <p className="text-xs text-muted-foreground mt-1">Screenshot of a news article, WhatsApp forward, or social post</p>
+                    </>
+                  )}
                 </div>
-
-                <Button type="submit" className="w-full h-12 text-base font-semibold" disabled={submitMutation.isPending} data-testid="button-submit-analysis">
-                  Run Intelligence Scan
+                <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileChange} />
+                {imageError && (
+                  <p className="text-sm text-destructive">{imageError}</p>
+                )}
+                <Button
+                  className="w-full h-12 text-base font-semibold"
+                  disabled={!imageFile || imageLoading}
+                  onClick={handleImageSubmit}
+                >
+                  {imageLoading ? "Analyzing Image..." : "Scan Image for Misinformation"}
                 </Button>
-              </form>
-            </Form>
+                <p className="text-xs text-center text-muted-foreground">
+                  AI will extract text from the image and analyze it for fake news indicators
+                </p>
+              </div>
+            )}
           </CardContent>
         </Card>
       </section>
 
-      {/* Recent Detections */}
       <section className="space-y-8">
         <div className="flex items-center justify-between">
           <div className="space-y-1">

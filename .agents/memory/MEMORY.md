@@ -1,0 +1,2 @@
+- [OpenAI lazy init](openai-lazy-init.md) — never instantiate OpenAI client at module scope; always create inside the function so server starts without OPENAI_API_KEY
+- [Image upload route ordering](image-route-ordering.md) — /articles/image must be registered before /articles/:id in Express to avoid param conflict
