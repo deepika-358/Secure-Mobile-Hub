@@ -1,10 +1,10 @@
 import { useParams, Link } from "wouter";
 import { format } from "date-fns";
-import { ArrowLeft, AlertCircle, CheckCircle2, HelpCircle, ExternalLink, Calendar, Link as LinkIcon, FileText, Activity } from "lucide-react";
+import { ArrowLeft, AlertCircle, CheckCircle2, HelpCircle, ExternalLink, Calendar, Link as LinkIcon, FileText, Activity, KeyRound } from "lucide-react";
 import { useGetArticle, getGetArticleQueryKey } from "@workspace/api-client-react";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { VerdictBadge } from "@/components/article/VerdictBadge";
 import { ConfidenceBar } from "@/components/article/ConfidenceBar";
 import { Separator } from "@/components/ui/separator";
@@ -47,6 +47,8 @@ export function Result() {
     );
   }
 
+  const isApiKeyMissing = article.indicators === "analysis-error" && article.confidence === 0;
+
   const VerdictIcon = {
     real: CheckCircle2,
     fake: AlertCircle,
@@ -73,7 +75,27 @@ export function Result() {
             <ArrowLeft className="h-4 w-4" /> Back to Analysis
           </Button>
         </Link>
-        
+
+        {/* API Key missing banner */}
+        {isApiKeyMissing && (
+          <div className="mb-6 flex items-start gap-3 rounded-xl border border-amber-500/40 bg-amber-500/10 p-4 text-sm">
+            <KeyRound className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <p className="font-semibold text-amber-300">OpenAI API Key Required</p>
+              <p className="text-amber-200/80">
+                The AI could not run because no API key is set. Add your <code className="bg-amber-500/20 px-1 rounded">OPENAI_API_KEY</code> in the{" "}
+                <strong>Secrets panel</strong> (lock icon in the left sidebar), then submit the article again.
+              </p>
+              <p className="text-amber-200/60 text-xs">
+                Get a free key at{" "}
+                <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer" className="underline hover:text-amber-200">
+                  platform.openai.com/api-keys
+                </a>
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Verdict Banner */}
         <div className={`rounded-xl border bg-gradient-to-br p-8 md:p-12 mb-8 ${bannerColor}`}>
           <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-8">
@@ -100,11 +122,14 @@ export function Result() {
                 )}
               </div>
             </div>
-            
+
             <div className="w-full md:w-64 shrink-0 bg-background/40 backdrop-blur-md rounded-xl p-6 border border-border/50 shadow-xl">
               <div className="text-center mb-2">
                 <div className="text-sm text-muted-foreground uppercase tracking-wider font-semibold">Confidence Score</div>
                 <div className="text-4xl font-mono font-bold mt-1">{Math.round(article.confidence)}%</div>
+                {isApiKeyMissing && (
+                  <p className="text-xs text-amber-400/80 mt-1">API key needed</p>
+                )}
               </div>
               <ConfidenceBar confidence={article.confidence} verdict={article.verdict} />
             </div>
@@ -124,25 +149,31 @@ export function Result() {
               </Card>
             </section>
 
-            {article.indicators && (
+            {article.indicators && article.indicators !== "analysis-error" && (
               <section className="space-y-4">
                 <h3 className="text-lg font-semibold text-muted-foreground uppercase tracking-wider text-sm">Key Indicators</h3>
-                <div className="prose prose-invert prose-p:text-muted-foreground max-w-none">
-                  <p>{article.indicators}</p>
+                <div className="flex flex-wrap gap-2">
+                  {article.indicators.split(",").map((ind, i) => (
+                    <span key={i} className="text-xs bg-card border border-border/60 px-2.5 py-1 rounded-full text-muted-foreground">
+                      {ind.trim()}
+                    </span>
+                  ))}
                 </div>
               </section>
             )}
 
             <Separator className="my-8" />
 
-            <section className="space-y-4">
-              <h3 className="text-lg font-semibold">Original Content</h3>
-              <Card className="bg-muted/10 border-dashed">
-                <CardContent className="p-6 text-sm text-muted-foreground whitespace-pre-wrap font-mono leading-relaxed">
-                  {article.content}
-                </CardContent>
-              </Card>
-            </section>
+            {article.content && (
+              <section className="space-y-4">
+                <h3 className="text-lg font-semibold">Original Content</h3>
+                <Card className="bg-muted/10 border-dashed">
+                  <CardContent className="p-6 text-sm text-muted-foreground whitespace-pre-wrap font-mono leading-relaxed">
+                    {article.content}
+                  </CardContent>
+                </Card>
+              </section>
+            )}
           </div>
         </div>
       </div>

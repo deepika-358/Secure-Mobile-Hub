@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Search } from "lucide-react";
-import { useListArticles } from "@workspace/api-client-react";
+import { useListArticles, useDeleteArticle, getListArticlesQueryKey } from "@workspace/api-client-react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { ArticleCard } from "@/components/article/ArticleCard";
 import { Input } from "@/components/ui/input";
@@ -10,16 +11,35 @@ import { Skeleton } from "@/components/ui/skeleton";
 export function History() {
   const [filterVerdict, setFilterVerdict] = useState<string>("all");
   const [search, setSearch] = useState("");
+  const [deletingIds, setDeletingIds] = useState<Set<number>>(new Set());
+  const queryClient = useQueryClient();
+  const deleteMutation = useDeleteArticle();
 
   const { data: articles, isLoading } = useListArticles({
     verdict: filterVerdict !== "all" ? filterVerdict : undefined,
-    limit: 50,
+    limit: 100,
   });
 
-  const filteredArticles = articles?.filter(a => 
-    a.title.toLowerCase().includes(search.toLowerCase()) || 
+  const filteredArticles = articles?.filter(a =>
+    a.title.toLowerCase().includes(search.toLowerCase()) ||
     a.content.toLowerCase().includes(search.toLowerCase())
   );
+
+  function handleDelete(id: number) {
+    setDeletingIds(prev => new Set(prev).add(id));
+    deleteMutation.mutate(
+      { id },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: getListArticlesQueryKey() });
+          setDeletingIds(prev => { const s = new Set(prev); s.delete(id); return s; });
+        },
+        onError: () => {
+          setDeletingIds(prev => { const s = new Set(prev); s.delete(id); return s; });
+        },
+      }
+    );
+  }
 
   return (
     <div className="flex-1 w-full max-w-7xl mx-auto px-4 py-8 space-y-8">
@@ -32,8 +52,8 @@ export function History() {
         <div className="flex items-center gap-3">
           <div className="relative w-full md:w-64">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input 
-              placeholder="Search history..." 
+            <Input
+              placeholder="Search history..."
               className="pl-9 bg-background"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -62,11 +82,23 @@ export function History() {
           ))}
         </div>
       ) : filteredArticles && filteredArticles.length > 0 ? (
-        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {filteredArticles.map(article => (
-            <ArticleCard key={article.id} article={article} />
-          ))}
-        </div>
+        <>
+          <p className="text-xs text-muted-foreground -mt-4">
+            {filteredArticles.length} record{filteredArticles.length !== 1 ? "s" : ""} found
+            {search || filterVerdict !== "all" ? " (filtered)" : ""}
+            {" — "}hover a card to delete it
+          </p>
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {filteredArticles.map(article => (
+              <ArticleCard
+                key={article.id}
+                article={article}
+                onDelete={handleDelete}
+                isDeleting={deletingIds.has(article.id)}
+              />
+            ))}
+          </div>
+        </>
       ) : (
         <div className="text-center py-24 text-muted-foreground bg-card/10 rounded-xl border border-dashed border-border/50">
           <p className="text-lg font-medium text-foreground">No records found</p>
