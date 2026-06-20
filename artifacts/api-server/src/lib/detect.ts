@@ -1,11 +1,12 @@
 import OpenAI from "openai";
 import { logger } from "./logger";
 
+if (!process.env.OPENAI_API_KEY) {
+  throw new Error("OPENAI_API_KEY environment variable is required. Add it in the Secrets panel.");
+}
+
 const client = new OpenAI({
-  apiKey: process.env.REPLIT_AI_API_KEY || process.env.OPENAI_API_KEY,
-  baseURL: process.env.REPLIT_AI_API_KEY
-    ? "https://ai.replit.com/v1"
-    : undefined,
+  apiKey: process.env.OPENAI_API_KEY,
 });
 
 export interface DetectionResult {
